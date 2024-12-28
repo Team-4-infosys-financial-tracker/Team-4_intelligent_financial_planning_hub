@@ -11,6 +11,7 @@ from .models import Profile
 import logging
 from django.contrib.auth.hashers import check_password
 from django.views.decorators.csrf import csrf_exempt
+from django.utils.dateparse import parse_date  # Ensure this is imported
 from django.contrib.messages import get_messages
 from django.db.models import Sum
 import json
@@ -399,16 +400,52 @@ def add_expenses(request):
 @login_required
 def view_expenses(request):
     clear_stale_messages(request)
-
     expenses = Expense.objects.filter(user=request.user)
+    categories = [choice[0] for choice in Expense.CATEGORY_CHOICES]
+    return render(request, 'accounts/view_expenses.html', {'expenses': expenses, 'categories': categories})
 
-    # Format the date to remove the comma (if needed)
-    for expense in expenses:
-        # If it's a DateField, format the date to remove the comma
-        if expense.date:
-            expense.date = expense.date.strftime('%b %d %Y')  # Format as "Dec 04 2024"
 
-    return render(request, 'accounts/view_expenses.html', {'expenses': expenses})
+@login_required
+def get_categories(request):
+    categories = [choice[0] for choice in Expense.CATEGORY_CHOICES]
+    return JsonResponse({'categories': categories})
+
+
+def filter_expenses(request):
+    category = request.GET.get('category', 'All')
+    start_date = request.GET.get('start_date', None)
+    end_date = request.GET.get('end_date', None)
+
+    filtered_expenses = Expense.objects.filter(user=request.user)
+
+    if category != 'All':
+        filtered_expenses = filtered_expenses.filter(category=category)
+
+    if start_date:
+        start_date_parsed = parse_date(start_date)
+        if start_date_parsed:
+            filtered_expenses = filtered_expenses.filter(date__gte=start_date_parsed)
+
+    if end_date:
+        end_date_parsed = parse_date(end_date)
+        if end_date_parsed:
+            filtered_expenses = filtered_expenses.filter(date__lte=end_date_parsed)
+
+    # Prepare JSON response
+    expenses_data = [
+        {
+            "id": expense.id,
+            "date": expense.date.strftime('%b %d %Y'),
+            "description": expense.description,
+            "amount": str(expense.amount),
+            "category": expense.category,
+        }
+        for expense in filtered_expenses
+    ]
+
+    return JsonResponse({"expenses": expenses_data})
+
+
 @login_required
 def financial_reports(request):
     # Filter expenses for the logged-in user
